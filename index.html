@@ -200,13 +200,19 @@
         // Use the server API to test text
         async function testText(text) {
             try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+                
                 const response = await fetch('/api/test', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ text: text })
+                    body: JSON.stringify({ text: text }),
+                    signal: controller.signal
                 });
+                
+                clearTimeout(timeoutId);
                 
                 if (!response.ok) {
                     throw new Error('Server error');
@@ -214,6 +220,14 @@
                 
                 return await response.json();
             } catch (error) {
+                if (error.name === 'AbortError') {
+                    console.error('Request timeout:', error);
+                    return {
+                        isNonsense: false,
+                        flaggedBy: [],
+                        error: 'Request timeout - please try again'
+                    };
+                }
                 console.error('Error testing text:', error);
                 return {
                     isNonsense: false,
@@ -333,55 +347,74 @@
             let okCount = 0;
             let nonsenseCount = 0;
             
-            for (let i = 0; i < texts.length; i++) {
-                const textObj = texts[i];
-                const text = textObj.text;
+            // Process in smaller batches for better responsiveness
+            const BATCH_SIZE = 5;
+            
+            for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+                const batch = texts.slice(i, Math.min(i + BATCH_SIZE, texts.length));
                 
-                // Update progress line
-                progressDiv.innerHTML = `<span class="help-text">[${i + 1}/${texts.length}]</span> Analyzing...`;
-                
-                try {
-                    const result = await testText(text);
+                // Process batch in parallel for speed
+                const batchPromises = batch.map(async (textObj) => {
+                    const text = textObj.text;
                     
-                    if (result.error) {
-                        results.push({
+                    try {
+                        const result = await testText(text);
+                        
+                        if (result.error) {
+                            return {
+                                text: text,
+                                rowNumber: textObj.rowNumber,
+                                isNonsense: false,
+                                error: result.error,
+                                flaggedBy: []
+                            };
+                        } else if (result.isNonsense) {
+                            return {
+                                text: text,
+                                rowNumber: textObj.rowNumber,
+                                isNonsense: true,
+                                error: null,
+                                flaggedBy: result.flaggedBy
+                            };
+                        } else {
+                            return {
+                                text: text,
+                                rowNumber: textObj.rowNumber,
+                                isNonsense: false,
+                                error: null,
+                                flaggedBy: []
+                            };
+                        }
+                        
+                    } catch (error) {
+                        return {
                             text: text,
                             rowNumber: textObj.rowNumber,
                             isNonsense: false,
-                            error: result.error,
+                            error: 'Failed to test text',
                             flaggedBy: []
-                        });
-                        okCount++;
-                    } else if (result.isNonsense) {
-                        results.push({
-                            text: text,
-                            rowNumber: textObj.rowNumber,
-                            isNonsense: true,
-                            error: null,
-                            flaggedBy: result.flaggedBy
-                        });
+                        };
+                    }
+                });
+                
+                const batchResults = await Promise.all(batchPromises);
+                results.push(...batchResults);
+                
+                // Update counts
+                for (const result of batchResults) {
+                    if (result.isNonsense) {
                         nonsenseCount++;
                     } else {
-                        results.push({
-                            text: text,
-                            rowNumber: textObj.rowNumber,
-                            isNonsense: false,
-                            error: null,
-                            flaggedBy: []
-                        });
                         okCount++;
                     }
-                    
-                } catch (error) {
-                    results.push({
-                        text: text,
-                        rowNumber: textObj.rowNumber,
-                        isNonsense: false,
-                        error: 'Failed to test text',
-                        flaggedBy: []
-                    });
-                    okCount++;
                 }
+                
+                // Update progress
+                const processed = Math.min(i + BATCH_SIZE, texts.length);
+                progressDiv.innerHTML = `<span class="help-text">[${processed}/${texts.length}]</span> Analyzing...`;
+                
+                // Small delay to keep UI responsive
+                await new Promise(resolve => setTimeout(resolve, 10));
             }
             
             // Update final progress line

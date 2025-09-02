@@ -14,22 +14,23 @@ const {
   purePunctuationFilter
 } = require('./src/filters.js');
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+
+// Pre-initialize filters array to avoid repeated object creation
+const FILTERS = [
+  { name: 'Trigram Filter', func: trigramFilter },
+  { name: 'Dominant Character Filter', func: dominantCharacterFilter },
+  { name: 'Character Repetition Filter', func: characterRepetitionFilter },
+  { name: 'Word to Character Ratio Filter', func: wordToCharacterRatioFilter },
+  { name: 'Dominant Word Filter', func: dominantWordFilter },
+  { name: 'Word Repetition Filter', func: wordRepetitionFilter },
+  { name: 'Pure Punctuation Filter', func: purePunctuationFilter }
+];
 
 function testText(text) {
-  const filters = [
-    { name: 'Trigram Filter', func: trigramFilter },
-    { name: 'Dominant Character Filter', func: dominantCharacterFilter },
-    { name: 'Character Repetition Filter', func: characterRepetitionFilter },
-    { name: 'Word to Character Ratio Filter', func: wordToCharacterRatioFilter },
-    { name: 'Dominant Word Filter', func: dominantWordFilter },
-    { name: 'Word Repetition Filter', func: wordRepetitionFilter },
-    { name: 'Pure Punctuation Filter', func: purePunctuationFilter }
-  ];
-
   const flaggedBy = [];
   
-  for (const filter of filters) {
+  for (const filter of FILTERS) {
     try {
       if (filter.func(text)) {
         let details = '';
@@ -138,7 +139,11 @@ function serveFile(filePath, res) {
         break;
     }
     
-    res.writeHead(200, { 'Content-Type': contentType });
+    // Add caching headers for static files
+    res.writeHead(200, { 
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=3600' // Cache for 1 hour
+    });
     res.end(data);
   });
 }
@@ -172,7 +177,10 @@ const server = http.createServer((req, res) => {
           const { text } = JSON.parse(body);
           const result = testText(text);
           
-          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.writeHead(200, { 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache' // Don't cache API responses
+          });
           res.end(JSON.stringify(result));
         } catch (error) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
