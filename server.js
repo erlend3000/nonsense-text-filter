@@ -191,6 +191,59 @@ const server = http.createServer((req, res) => {
       res.writeHead(405);
       res.end('Method not allowed');
     }
+  } else if (pathname === '/api/test-bulk') {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => {
+        body += chunk.toString();
+      });
+      
+      req.on('end', () => {
+        try {
+          const { texts } = JSON.parse(body);
+          
+          if (!Array.isArray(texts)) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Expected array of texts' }));
+            return;
+          }
+          
+          // Process all texts in parallel
+          const results = texts.map(textObj => {
+            try {
+              const result = testText(textObj.text);
+              return {
+                text: textObj.text,
+                rowNumber: textObj.rowNumber,
+                isNonsense: result.isNonsense,
+                flaggedBy: result.flaggedBy,
+                error: null
+              };
+            } catch (error) {
+              return {
+                text: textObj.text,
+                rowNumber: textObj.rowNumber,
+                isNonsense: false,
+                flaggedBy: [],
+                error: 'Failed to test text'
+              };
+            }
+          });
+          
+          res.writeHead(200, { 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache'
+          });
+          res.end(JSON.stringify({ results }));
+        } catch (error) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        }
+      });
+    } else {
+      res.writeHead(405);
+      res.end('Method not allowed');
+    }
   } else {
     res.writeHead(404);
     res.end('Not found');
