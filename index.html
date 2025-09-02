@@ -348,19 +348,19 @@
             let nonsenseCount = 0;
             
             // Process in larger batches for better performance on Vercel
-            const BATCH_SIZE = 50; // Increased from 5 to 50
+            const BATCH_SIZE = 100; // Increased from 50 to 100
             
             for (let i = 0; i < texts.length; i += BATCH_SIZE) {
                 const batch = texts.slice(i, Math.min(i + BATCH_SIZE, texts.length));
                 
                 // Update progress
                 const processed = Math.min(i + BATCH_SIZE, texts.length);
-                progressDiv.innerHTML = `<span class="help-text">[${Math.min(i + batch.length, texts.length)}/${texts.length}]</span> Analyzing batch...`;
+                progressDiv.innerHTML = `<span class="help-text">[${Math.min(i + batch.length, texts.length)}/${texts.length}]</span> Analyzing...`;
                 
                 try {
                     // Send entire batch to server in one request
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for bulk
+                    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout for bulk
                     
                     const response = await fetch('/api/test-bulk', {
                         method: 'POST',
@@ -440,8 +440,7 @@
                     }
                 }
                 
-                // Small delay to keep UI responsive
-                await new Promise(resolve => setTimeout(resolve, 10));
+                // No delay needed for bulk processing
             }
             
             // Update final progress line
