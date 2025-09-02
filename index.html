@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nonsense Text Filter Terminal</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            font-family: 'Roboto Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
+            background-color: #000;
+            color: #ffffff;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+        }
+
+        .terminal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: background-color 0.2s ease;
+        }
+
+        .terminal.drag-over {
+            background-color: #001100;
+        }
+
+        .drag-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 255, 0, 0.1);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            pointer-events: none;
+        }
+
+        .drag-overlay.active {
+            display: flex;
+        }
+
+        .drag-text {
+            color: #00ff00;
+            font-size: 2vw;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .terminal-line {
+            margin-bottom: calc(0.3vh);
+        }
+
+        .prompt {
+            color: #ffffff;
+        }
+
+        .input-line {
+            display: flex;
+            align-items: center;
+            position: relative;
+        }
+
+        .terminal-input {
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #ffffff;
+            font-family: inherit;
+            font-size: inherit;
+            flex: 1;
+            caret-color: transparent;
+            position: relative;
+            z-index: 2;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: calc(0.6em);
+            height: calc(1.1em);
+            background-color: #ffffff;
+            animation: blink 1s infinite;
+            position: absolute;
+            left: 0;
+            z-index: 1;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .response-ok {
+            color: #00ff00;
+            font-weight: bold;
+        }
+
+        .response-nonsense {
+            color: #ff0000;
+            font-weight: bold;
+        }
+
+        .filter-details {
+            color: #ff0000;
+            margin-left: calc(1vw + 1vh);
+        }
+
+        .help-text {
+            color: #ffff00;
+        }
+
+        .header {
+            position: relative;
+            background-color: #000;
+            color: #ffffff;
+            margin: calc(2vh + 2vw) auto;
+            margin-bottom: calc(2vh + 2vw);
+            padding: 2vw;
+            padding-bottom: 3vw;
+            text-align: center;
+            border: 5px double #ffffff;
+            max-width: 80vw;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .header-title {
+            font-weight: bold;
+            margin: calc(0.5vh + 0.5vw) 0;
+            letter-spacing: 0.1em;
+            font-size: 1.6vw;
+        }
+
+        .header-subtitle {
+            margin: calc(0.3vh + 0.3vw) 0;
+            font-size: 1.6vw;
+        }
+
+        .header-description {
+            margin-top: calc(1vh + 0.5vw);
+            font-size: 1.6vw;
+            line-height: 1.3;
+        }
+
+        .content {
+            padding: 2vw;
+            padding-top: 1vw;
+            flex: 1;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 1.6vw;
+            line-height: 1.4;
+            display: flex;
+            flex-direction: column;
+        }
+    </style>
+</head>
+<body>
+    <div class="terminal" id="terminal">
+        <div class="header">
+            <div class="header-title">WEWILLWRITE NO NONSENSE TERMINAL</div>
+            <div class="header-subtitle">Version 3.0</div>
+            <div class="header-description">
+                Type any text and press ENTER to test it against the nonsense filters.<br>
+                Type 'clear' to clear the terminal or 'help' for more information.
+            </div>
+        </div>
+        <div class="content" id="content">
+            <div class="input-line">
+                <input type="text" class="terminal-input" id="textInput" autofocus>
+                <span class="cursor" id="cursor"></span>
+            </div>
+        </div>
+    </div>
+    <div class="drag-overlay" id="dragOverlay">
+        <div class="drag-text"></div>
+    </div>
+
+    <script>
+        // Use the server API to test text
+        async function testText(text) {
+            try {
+                const response = await fetch('/api/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: text })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Server error');
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('Error testing text:', error);
+                return {
+                    isNonsense: false,
+                    flaggedBy: [],
+                    error: 'Failed to connect to server'
+                };
+            }
+        }
+        const terminal = document.getElementById('terminal');
+        const content = document.getElementById('content');
+        const textInput = document.getElementById('textInput');
+        const cursor = document.getElementById('cursor');
+        const dragOverlay = document.getElementById('dragOverlay');
+
+        // CSV parsing function
+        function parseCSV(csvText) {
+            const cells = [];
+            let rowIndex = 0;
+            let currentRow = [];
+            let currentCell = '';
+            let insideQuotes = false;
+            let i = 0;
+            
+            while (i < csvText.length) {
+                const char = csvText[i];
+                const nextChar = csvText[i + 1];
+                
+                if (char === '"') {
+                    if (insideQuotes && nextChar === '"') {
+                        // Escaped quote inside quoted field
+                        currentCell += '"';
+                        i += 2; // Skip both quotes
+                        continue;
+                    } else {
+                        // Toggle quote state
+                        insideQuotes = !insideQuotes;
+                    }
+                } else if (char === ',' && !insideQuotes) {
+                    // End of cell
+                    currentRow.push(currentCell.trim());
+                    currentCell = '';
+                } else if ((char === '\n' || char === '\r') && !insideQuotes) {
+                    // End of row
+                    currentRow.push(currentCell.trim());
+                    
+                    // Skip the first row (header)
+                    if (rowIndex > 0) {
+                        // Add all non-empty cells to our array with row number
+                        for (let cell of currentRow) {
+                            if (cell && cell.length > 0) {
+                                // Replace multiple line breaks/whitespace with single space
+                                const cleanedCell = cell.replace(/\s+/g, ' ').trim();
+                                if (cleanedCell && cleanedCell.length > 0) {
+                                    cells.push({
+                                        text: cleanedCell,
+                                        rowNumber: rowIndex + 1 // +1 because we skip header
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Reset for next row
+                    currentRow = [];
+                    currentCell = '';
+                    rowIndex++;
+                    
+                    // Skip \r\n combinations
+                    if (char === '\r' && nextChar === '\n') {
+                        i++;
+                    }
+                } else {
+                    // Add character to current cell
+                    currentCell += char;
+                }
+                
+                i++;
+            }
+            
+            // Handle last row if file doesn't end with newline
+            if (currentCell || currentRow.length > 0) {
+                currentRow.push(currentCell.trim());
+                
+                if (rowIndex > 0) {
+                    for (let cell of currentRow) {
+                        if (cell && cell.length > 0) {
+                            const cleanedCell = cell.replace(/\s+/g, ' ').trim();
+                            if (cleanedCell && cleanedCell.length > 0) {
+                                cells.push({
+                                    text: cleanedCell,
+                                    rowNumber: rowIndex + 1
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            
+            return cells;
+        }
+
+        // Bulk analysis function
+        async function analyzeBulk(texts) {
+            // Hide cursor during analysis
+            document.querySelector('.cursor').style.display = 'none';
+            
+            // Add the progress line that will be updated
+            const progressDiv = document.createElement('div');
+            progressDiv.className = 'terminal-line prompt';
+            progressDiv.id = 'progress-line';
+            
+            const content = document.getElementById('content');
+            const inputLine = content.querySelector('.input-line');
+            content.insertBefore(progressDiv, inputLine);
+            
+            const results = [];
+            let okCount = 0;
+            let nonsenseCount = 0;
+            
+            for (let i = 0; i < texts.length; i++) {
+                const textObj = texts[i];
+                const text = textObj.text;
+                
+                // Update progress line
+                progressDiv.innerHTML = `<span class="help-text">[${i + 1}/${texts.length}]</span> Analyzing...`;
+                
+                try {
+                    const result = await testText(text);
+                    
+                    if (result.error) {
+                        results.push({
+                            text: text,
+                            rowNumber: textObj.rowNumber,
+                            isNonsense: false,
+                            error: result.error,
+                            flaggedBy: []
+                        });
+                        okCount++;
+                    } else if (result.isNonsense) {
+                        results.push({
+                            text: text,
+                            rowNumber: textObj.rowNumber,
+                            isNonsense: true,
+                            error: null,
+                            flaggedBy: result.flaggedBy
+                        });
+                        nonsenseCount++;
+                    } else {
+                        results.push({
+                            text: text,
+                            rowNumber: textObj.rowNumber,
+                            isNonsense: false,
+                            error: null,
+                            flaggedBy: []
+                        });
+                        okCount++;
+                    }
+                    
+                } catch (error) {
+                    results.push({
+                        text: text,
+                        rowNumber: textObj.rowNumber,
+                        isNonsense: false,
+                        error: 'Failed to test text',
+                        flaggedBy: []
+                    });
+                    okCount++;
+                }
+            }
+            
+            // Update final progress line
+            progressDiv.innerHTML = `<span class="help-text">[${texts.length}/${texts.length}]</span> Analyzing... Bulk analysis complete.`;
+            
+            // Add summary lines
+            const total = okCount + nonsenseCount;
+            const okPercent = total > 0 ? ((okCount / total) * 100).toFixed(1) : 0;
+            const nonsensePercent = total > 0 ? ((nonsenseCount / total) * 100).toFixed(1) : 0;
+            
+            addOutput('');
+            addOutput(`OK: ${okCount} (${okPercent}%)`, 'response-ok');
+            addOutput(`NONSENSE: ${nonsenseCount} (${nonsensePercent}%)`, 'response-nonsense');
+            addOutput('');
+            addOutput('View results? (F) Flagged, (A) All, (N) None');
+            addOutput('');
+            
+            // Show cursor again
+            document.querySelector('.cursor').style.display = 'inline';
+            
+            // Store results for viewing
+            window.bulkResults = results;
+            window.waitingForBulkChoice = true;
+        }
+
+        async function handleBulkChoice(choice) {
+            const results = window.bulkResults;
+            
+            if (choice === 'n') {
+                addOutput('No results displayed.');
+                addOutput('');
+                // Exit bulk choice mode
+                window.waitingForBulkChoice = false;
+                return;
+            }
+            
+            if (choice === 'f') {
+                const flaggedResults = results.filter(r => r.isNonsense);
+                
+                if (flaggedResults.length === 0) {
+                    addOutput('No texts were flagged as nonsense!');
+                } else {
+                    for (let i = 0; i < flaggedResults.length; i++) {
+                        const result = flaggedResults[i];
+                        addOutput(`<span class="help-text">[${result.rowNumber}]</span> ${result.text}`, 'prompt');
+                        addOutput(`NONSENSE - Flagged by: ${result.flaggedBy.map(f => f.name).join(', ')}`, 'response-nonsense');
+                        addOutput('');
+                        
+                        // Add a small delay every 10 items to keep interface responsive
+                        if (i > 0 && i % 10 === 0) {
+                            await new Promise(resolve => setTimeout(resolve, 1));
+                        }
+                    }
+                }
+            } else if (choice === 'a') {
+                for (let i = 0; i < results.length; i++) {
+                    const result = results[i];
+                    addOutput(`<span class="help-text">[${result.rowNumber}]</span> ${result.text}`, 'prompt');
+                    
+                    if (result.error) {
+                        addOutput(`Error: ${result.error}`, 'response-nonsense');
+                    } else if (result.isNonsense) {
+                        addOutput(`NONSENSE - Flagged by: ${result.flaggedBy.map(f => f.name).join(', ')}`, 'response-nonsense');
+                    } else {
+                        addOutput('OK', 'response-ok');
+                    }
+                    addOutput('');
+                    
+                    // Add a small delay every 10 items to keep interface responsive
+                    if (i > 0 && i % 10 === 0) {
+                        await new Promise(resolve => setTimeout(resolve, 1));
+                    }
+                }
+            }
+            
+            // Show the choice menu again (except when user chose 'n')
+            addOutput('');
+            addOutput('View results? (F) Flagged, (A) All, (N) None');
+            addOutput('');
+            // Keep waiting for bulk choice (don't set waitingForBulkChoice to false)
+        }
+
+        function addOutput(outputText, className = '') {
+            const content = document.getElementById('content');
+            const outputDiv = document.createElement('div');
+            outputDiv.className = `terminal-line ${className}`;
+            
+            // Check if this is HTML content (contains spans)
+            if (typeof outputText === 'string' && outputText.includes('<span')) {
+                outputDiv.innerHTML = outputText;
+            } else {
+                outputDiv.textContent = outputText;
+            }
+            
+            // Insert before the input line
+            const inputLine = content.querySelector('.input-line');
+            content.insertBefore(outputDiv, inputLine);
+            
+            // Scroll to bottom
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function processInput(input) {
+            // Show the command that was entered
+            addOutput(`${input}`, 'prompt');
+            
+            if (input.trim() === '') {
+                return;
+            }
+            
+            // Check if we're waiting for bulk choice
+            if (window.waitingForBulkChoice) {
+                const choice = input.trim().toLowerCase();
+                if (choice === 'f' || choice === 'a' || choice === 'n') {
+                    handleBulkChoice(choice);
+                    // Note: waitingForBulkChoice is only set to false in handleBulkChoice for 'n'
+                    return;
+                } else {
+                    addOutput('Please choose: (F) Flagged only, (A) All, (N) None');
+                    return;
+                }
+            }
+            
+            if (input.toLowerCase() === 'clear') {
+                // Clear all content except header and input line
+                const lines = content.querySelectorAll('.terminal-line');
+                lines.forEach(line => line.remove());
+                return;
+            }
+            
+            if (input.toLowerCase() === 'help') {
+                addOutput('Available commands:', 'help-text');
+                addOutput('  clear    - Clear the terminal', 'help-text');
+                addOutput('  help     - Show this help message', 'help-text');
+                addOutput('  [text]   - Test any text for nonsense patterns', 'help-text');
+                addOutput(' ');
+                addOutput('Bulk Analysis:', 'help-text');
+                addOutput('  Drag & drop a CSV file to analyze all cells automatically', 'help-text');
+                addOutput(' ');
+                addOutput('The system uses multiple filters to detect nonsense text:', 'help-text');
+                addOutput('- Trigram Filter (language model)', 'help-text');
+                addOutput('- Dominant Character Filter', 'help-text');
+                addOutput('- Character Repetition Filter', 'help-text');
+                addOutput('- Word to Character Ratio Filter', 'help-text');
+                addOutput('- Dominant Word Filter', 'help-text');
+                addOutput('- Word Repetition Filter', 'help-text');
+                addOutput('- Pure Punctuation Filter', 'help-text');
+                return;
+            }
+            
+            // Test the input text (removed "Testing..." message)
+            testText(input).then(result => {
+                if (result.error) {
+                    addOutput(`Error: ${result.error}`, 'response-nonsense');
+                } else if (result.isNonsense) {
+                    addOutput(`NONSENSE - Flagged by: ${result.flaggedBy.map(f => f.name).join(', ')}`, 'response-nonsense');
+                } else {
+                    addOutput('OK', 'response-ok');
+                }
+                
+                addOutput(''); // Empty line for spacing
+            }).catch(error => {
+                addOutput('Error: Failed to test text');
+                addOutput(''); // Empty line for spacing
+            });
+        }
+
+        textInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const input = textInput.value;
+                processInput(input);
+                textInput.value = '';
+            }
+        });
+
+        // Keep focus on input
+        textInput.addEventListener('blur', function() {
+            setTimeout(() => textInput.focus(), 100);
+        });
+
+        // Hide the actual cursor and show our custom one
+        textInput.style.caretColor = 'transparent';
+        
+        // Position cursor after text
+        function updateCursor() {
+            const text = textInput.value;
+            
+            // Get the computed font size
+            const computedStyle = window.getComputedStyle(textInput);
+            const fontSize = parseFloat(computedStyle.fontSize);
+            
+            // Calculate character width more accurately for monospace font
+            const charWidth = fontSize * 0.6; // Monospace character width
+            
+            // For monospace fonts, each character (including spaces) has the same width
+            const textWidth = text.length * charWidth;
+            
+            // Position cursor right after the text (no prompt offset)
+            cursor.style.left = textWidth + 'px';
+            
+            // Update cursor size to be exactly one character width
+            cursor.style.width = charWidth + 'px';
+            cursor.style.height = (fontSize * 1.1) + 'px';
+        }
+
+        // Single keydown event listener to handle ENTER key
+        textInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault(); // Prevent default form submission
+                const input = textInput.value;
+                processInput(input);
+                textInput.value = '';
+                updateCursor(); // Update cursor position after clearing input
+            }
+        });
+        
+        // Update cursor on input changes
+        textInput.addEventListener('input', function() {
+            setTimeout(updateCursor, 0); // Use setTimeout to ensure DOM is updated
+        });
+        
+        // Also update on keyup for immediate feedback
+        textInput.addEventListener('keyup', function() {
+            setTimeout(updateCursor, 0);
+        });
+        
+        // Keep focus on input
+        textInput.addEventListener('blur', function() {
+            setTimeout(() => textInput.focus(), 100);
+        });
+
+        // Hide the actual cursor and show our custom one
+        textInput.style.caretColor = 'transparent';
+        
+        // Initial cursor position
+        updateCursor();
+        
+        // Update cursor position on window resize
+        window.addEventListener('resize', function() {
+            updateCursor();
+            
+            // Force terminal to resize
+            const terminal = document.getElementById('terminal');
+            terminal.style.width = '100%';
+            terminal.style.height = '100%';
+        });
+        
+        // Initial focus and setup
+        textInput.focus();
+        
+        // Ensure terminal fills screen on load
+        window.addEventListener('load', function() {
+            const terminal = document.getElementById('terminal');
+            terminal.style.width = '100%';
+            terminal.style.height = '100%';
+        });
+
+        // Drag and Drop functionality
+        let dragCounter = 0;
+
+        document.addEventListener('dragenter', function(e) {
+            e.preventDefault();
+            dragCounter++;
+            dragOverlay.classList.add('active');
+            terminal.classList.add('drag-over');
+        });
+
+        document.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            dragCounter--;
+            if (dragCounter <= 0) {
+                dragOverlay.classList.remove('active');
+                terminal.classList.remove('drag-over');
+                dragCounter = 0;
+            }
+        });
+
+        document.addEventListener('dragover', function(e) {
+            e.preventDefault();
+        });
+
+        document.addEventListener('drop', function(e) {
+            e.preventDefault();
+            dragCounter = 0;
+            dragOverlay.classList.remove('active');
+            terminal.classList.remove('drag-over');
+
+            const files = e.dataTransfer.files;
+            
+            if (files.length === 0) {
+                addOutput('No files dropped.');
+                return;
+            }
+
+            const file = files[0];
+            
+            // Check if it's a CSV file
+            if (!file.name.toLowerCase().endsWith('.csv')) {
+                addOutput('Error: Only CSV files are supported.');
+                addOutput('');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    const csvContent = event.target.result;
+                    const texts = parseCSV(csvContent);
+                    
+                    if (texts.length === 0) {
+                        addOutput('Error: No text found in CSV file.');
+                        addOutput('');
+                        return;
+                    }
+
+                    // Start bulk analysis
+                    analyzeBulk(texts);
+                    
+                } catch (error) {
+                    addOutput(`Error processing CSV: ${error.message}`);
+                    addOutput('');
+                }
+            };
+
+            reader.onerror = function() {
+                addOutput('Error: Failed to read file.');
+                addOutput('');
+            };
+
+            reader.readAsText(file);
+        });
+    </script>
+</body>
+</html>

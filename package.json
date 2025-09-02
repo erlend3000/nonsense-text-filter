@@ -1,0 +1,16 @@
+{
+  "name": "nonsense-text-filter",
+  "version": "3.0.0",
+  "description": "Advanced CSV text analysis tool with 7-filter nonsense detection system",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=14.x"
+  },
+  "keywords": ["text-analysis", "csv", "nonsense-detection", "filter"],
+  "author": "erlend3000",
+  "license": "MIT"
+}
