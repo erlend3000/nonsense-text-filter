@@ -137,6 +137,19 @@ function serveFile(filePath, res) {
       case '.json':
         contentType = 'application/json';
         break;
+      case '.png':
+        contentType = 'image/png';
+        break;
+      case '.jpg':
+      case '.jpeg':
+        contentType = 'image/jpeg';
+        break;
+      case '.gif':
+        contentType = 'image/gif';
+        break;
+      case '.svg':
+        contentType = 'image/svg+xml';
+        break;
     }
     
     // Add caching headers for static files
@@ -244,6 +257,10 @@ const server = http.createServer((req, res) => {
       res.writeHead(405);
       res.end('Method not allowed');
     }
+  } else if (pathname.startsWith('/public/')) {
+    // Serve static files from public directory
+    const filePath = path.join(__dirname, pathname);
+    serveFile(filePath, res);
   } else {
     res.writeHead(404);
     res.end('Not found');
